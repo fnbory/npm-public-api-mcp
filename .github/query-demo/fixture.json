@@ -1,0 +1,14 @@
+{
+  "schema": "type Query { getProduct(id: ID!): Product getStore(id: ID!): Store getOrder(id: ID!): Order }\ntype Product { id: ID! name: String! }\ntype Store { id: ID! title: String! }\ntype Order { id: ID! total: Float! status: String! }\n",
+  "operations": [
+    { "operationName": "getProduct", "method": "query", "family": "demo" },
+    { "operationName": "getStore", "method": "query", "family": "demo" },
+    { "operationName": "getOrder", "method": "query", "family": "demo" }
+  ],
+  "samples": {
+    "getProduct": "query getProduct($id: ID!) { getProduct(id: $id) { id name } }\n"
+  },
+  "existing": {
+    "getStore": "query getStore($id: ID!) { getStore(id: $id) { id title } }\n"
+  }
+}

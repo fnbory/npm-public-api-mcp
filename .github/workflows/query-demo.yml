@@ -1,0 +1,110 @@
+name: Query Handoff Demo
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: query-demo-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out demo support files
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/query-demo
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '22'
+      - name: Install isolated demo dependencies
+        run: npm ci --prefix .github/query-demo --ignore-scripts --no-audit --no-fund
+      - name: Test preparation and validation logic
+        run: npm test --prefix .github/query-demo
+      - name: Prepare synthetic inputs
+        run: node .github/query-demo/demo.mjs prepare
+      - name: Upload schema, source queries, and agent tasks
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: query-demo-input-${{ github.run_id }}-${{ github.run_attempt }}
+          path: query-demo/input
+          if-no-files-found: error
+          retention-days: 7
+
+  agent:
+    needs: prepare
+    uses: ./.github/workflows/query-demo-agent.lock.yml
+    secrets:
+      COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+
+  finalize:
+    needs: [prepare, agent]
+    if: ${{ !cancelled() && needs.prepare.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Reject failed or skipped agent execution
+        if: needs.agent.result != 'success'
+        run: |
+          echo '::error::Agent execution did not succeed. No PR will be created.'
+          exit 1
+      - name: Check out the exact workflow revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '22'
+      - name: Install trusted demo dependencies
+        run: npm ci --prefix .github/query-demo --ignore-scripts --no-audit --no-fund
+      - name: Download original prepared inputs
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: query-demo-input-${{ github.run_id }}-${{ github.run_attempt }}
+          path: query-demo/input
+      - name: Download agent output into an isolated directory
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: query-demo-output-${{ github.run_id }}-${{ github.run_attempt }}
+          path: query-demo/output
+      - name: Independently validate and assemble the PR
+        id: verify
+        run: node .github/query-demo/demo.mjs finalize
+      - name: Commit only synthetic results and create one PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_BRANCH: ${{ github.event.repository.default_branch }}
+          DRAFT: ${{ steps.verify.outputs.draft }}
+        run: |
+          set -euo pipefail
+          branch="demo/query-handoff-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          test ! -e query-demo-result
+          cp -R query-demo/publish/query-demo-result .
+          git switch -c "$branch"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- query-demo-result
+          git commit -m 'Add synthetic GraphQL query handoff results'
+          git push origin "$branch"
+          flags=()
+          if [[ "$DRAFT" == 'true' ]]; then flags+=(--draft); fi
+          url=$(gh pr create --repo "$GITHUB_REPOSITORY" --base "$BASE_BRANCH" --head "$branch" \
+            --title 'Demo: sample-first GraphQL query handoff' \
+            --body-file query-demo/pr-body.md "${flags[@]}")
+          printf 'QUERY_DEMO_HANDOFF_OK\n\nPR: %s\n' "$url" >> "$GITHUB_STEP_SUMMARY"
+      - name: Fail validation after publishing a diagnostic draft
+        if: steps.verify.outputs.draft == 'true'
+        run: |
+          echo '::error::Final validation failed. A diagnostic draft PR was created.'
+          exit 1
