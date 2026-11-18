@@ -1,0 +1,19 @@
+{
+  "runKey": "44253883462-1",
+  "owner": "finalize",
+  "passed": true,
+  "results": [
+    {
+      "operationName": "getOrder",
+      "errors": []
+    },
+    {
+      "operationName": "getProduct",
+      "errors": []
+    },
+    {
+      "operationName": "getStore",
+      "errors": []
+    }
+  ]
+}

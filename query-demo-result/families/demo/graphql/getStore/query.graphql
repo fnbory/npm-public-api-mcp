@@ -1,0 +1,1 @@
+query getStore($id: ID!) { getStore(id: $id) { id title } }

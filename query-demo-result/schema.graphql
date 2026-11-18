@@ -1,0 +1,4 @@
+type Query { getProduct(id: ID!): Product getStore(id: ID!): Store getOrder(id: ID!): Order }
+type Product { id: ID! name: String! }
+type Store { id: ID! title: String! }
+type Order { id: ID! total: Float! status: String! }

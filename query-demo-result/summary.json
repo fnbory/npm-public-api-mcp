@@ -1,0 +1,31 @@
+{
+  "runKey": "44253883462-1",
+  "passed": true,
+  "agentValidationAttempts": 0,
+  "validationOwner": "finalize",
+  "validationAttempts": 1,
+  "operations": [
+    {
+      "operationName": "getProduct",
+      "method": "query",
+      "family": "demo",
+      "source": "sample",
+      "reason": "Synthetic documentation sample"
+    },
+    {
+      "operationName": "getStore",
+      "method": "query",
+      "family": "demo",
+      "source": "existing",
+      "reason": "No sample; reuse the existing query"
+    },
+    {
+      "operationName": "getOrder",
+      "method": "query",
+      "family": "demo",
+      "source": "agent",
+      "reason": "No sample or existing query; agent generation required"
+    }
+  ],
+  "errors": []
+}
