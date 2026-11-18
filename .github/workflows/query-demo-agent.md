@@ -46,6 +46,25 @@ pre-agent-steps:
   - name: Create output directory
     run: mkdir -p query-demo/output
 post-steps:
+  - name: Check agent handoff files
+    if: always()
+    run: |
+      node --input-type=module <<'NODE'
+      import assert from 'node:assert/strict';
+      import { existsSync, lstatSync, readFileSync } from 'node:fs';
+      const reportPath = 'query-demo/output/validation.json';
+      assert(existsSync(reportPath), 'Agent handoff incomplete: validation.json is missing; the agent must run the exact validator command.');
+      assert(lstatSync(reportPath).isFile(), 'Agent validation report must be a regular file.');
+      const report = JSON.parse(readFileSync(reportPath, 'utf8'));
+      assert.equal(report.runKey, `${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}`, 'Stale agent validation report.');
+      assert(Array.isArray(report.attempts) && report.attempts.length >= 1 && report.attempts.length <= 3,
+        'Agent validation report must contain one to three attempts.');
+      const state = JSON.parse(readFileSync('query-demo/input/tasks.json', 'utf8'));
+      for (const task of state.tasks) {
+        const queryPath = `query-demo/output/${task.operationName}.graphql`;
+        assert(existsSync(queryPath) && lstatSync(queryPath).isFile(), `Agent handoff incomplete: ${queryPath} is missing or not a regular file.`);
+      }
+      NODE
   - name: Return candidate queries
     if: always()
     uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
@@ -69,6 +88,10 @@ Do not access application code, network services, GitHub APIs, git, or credentia
 Do not create a commit or pull request. The caller owns final validation and publishing.
 
 Run `node .github/query-demo/demo.mjs validate-agent` after writing the files.
+Run that exact command from the repository root as a standalone shell call.
+Do not add redirections, pipes, command chaining, or output filters such as `tail`.
+Only the exact validator command is authorized. If a modified command is denied,
+retry the exact command above without additions; a denied call is not a validation attempt.
 The validator records attempts. Make at most three validation attempts, repairing
 the query files between attempts if needed. If errors remain, leave the candidate
 files and finish with an honest failure summary; do not substitute another operation.
