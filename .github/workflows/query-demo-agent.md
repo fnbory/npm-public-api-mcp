@@ -17,8 +17,8 @@ checkout: false
 tools:
   github: false
   edit:
-  bash:
-    - node .github/query-demo/demo.mjs validate-agent
+  bash: false
+  cli-proxy: false
 safe-outputs:
   create-issue: false
   report-failure-as-issue: false
@@ -36,8 +36,6 @@ pre-agent-steps:
     with:
       persist-credentials: false
       sparse-checkout: .github/query-demo
-  - name: Install isolated demo dependencies
-    run: npm ci --prefix .github/query-demo --ignore-scripts --no-audit --no-fund
   - name: Download prepared tasks
     uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
     with:
@@ -52,13 +50,6 @@ post-steps:
       node --input-type=module <<'NODE'
       import assert from 'node:assert/strict';
       import { existsSync, lstatSync, readFileSync } from 'node:fs';
-      const reportPath = 'query-demo/output/validation.json';
-      assert(existsSync(reportPath), 'Agent handoff incomplete: validation.json is missing; the agent must run the exact validator command.');
-      assert(lstatSync(reportPath).isFile(), 'Agent validation report must be a regular file.');
-      const report = JSON.parse(readFileSync(reportPath, 'utf8'));
-      assert.equal(report.runKey, `${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}`, 'Stale agent validation report.');
-      assert(Array.isArray(report.attempts) && report.attempts.length >= 1 && report.attempts.length <= 3,
-        'Agent validation report must contain one to three attempts.');
       const state = JSON.parse(readFileSync('query-demo/input/tasks.json', 'utf8'));
       for (const task of state.tasks) {
         const queryPath = `query-demo/output/${task.operationName}.graphql`;
@@ -87,15 +78,9 @@ Do not modify the schema, task manifest, scripts, dependencies, or any other fil
 Do not access application code, network services, GitHub APIs, git, or credentials.
 Do not create a commit or pull request. The caller owns final validation and publishing.
 
-Run `node .github/query-demo/demo.mjs validate-agent` after writing the files.
-Run that exact command from the repository root as a standalone shell call.
-Do not add redirections, pipes, command chaining, or output filters such as `tail`.
-Only the exact validator command is authorized. If a modified command is denied,
-retry the exact command above without additions; a denied call is not a validation attempt.
-The validator records attempts. Make at most three validation attempts, repairing
-the query files between attempts if needed. If errors remain, leave the candidate
-files and finish with an honest failure summary; do not substitute another operation.
-Do not write your own validation report. The validator writes it.
+Do not run shell commands or the validator, and do not write a validation report.
+The caller's Finalize job validates the returned query files and writes the report.
+This demo does not perform an automatic validation and repair loop.
 
-When validation succeeds, call the noop safe-output tool once with
-`QUERY_DEMO_AGENT_DONE` and finish.
+After writing every requested query file, call the noop safe-output tool once with
+`QUERY_DEMO_AGENT_DONE: candidates generated; validation belongs to Finalize` and finish.

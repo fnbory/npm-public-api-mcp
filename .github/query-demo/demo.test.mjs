@@ -58,10 +58,14 @@ test('rejects multiple operations, missing fragments, and typename-only selectio
 
 test('normal handoff publishes three independently validated queries and a source summary', async () => {
   await writeCandidate();
-  assert.equal((await validateAgent(baseDirectory, 'test-1')).passed, true);
   const summary = await finalize(baseDirectory, 'test-1');
   assert.equal(summary.passed, true);
-  assert.equal(summary.agentValidationAttempts, 1);
+  assert.equal(summary.agentValidationAttempts, 0);
+  assert.equal(summary.validationOwner, 'finalize');
+  const report = JSON.parse(await readFile(join(baseDirectory, 'publish', 'query-demo-result', 'validation.json'), 'utf8'));
+  assert.equal(report.owner, 'finalize');
+  assert.equal(report.passed, true);
+  assert.equal(report.results.length, 3);
   for (const operation of ['getProduct', 'getStore', 'getOrder']) {
     assert((await readFile(join(baseDirectory, 'publish', 'query-demo-result', 'families', 'demo', 'graphql', operation, 'query.graphql'), 'utf8')).includes(operation));
   }
@@ -110,22 +114,22 @@ test('rejects changed schema and stale task manifests', async () => {
   await assert.rejects(validateAgent(baseDirectory, 'test-1'), /schema changed/);
 });
 
-test('rejects modified sample queries and missing reports', async () => {
+test('rejects modified sample queries without requiring an agent report', async () => {
   await writeCandidate();
-  await assert.rejects(finalize(baseDirectory, 'test-1'), /ENOENT/);
-  await validateAgent(baseDirectory, 'test-1');
   await writeFile(join(baseDirectory, 'input', 'candidates', 'getProduct.graphql'), validQuery);
   await assert.rejects(finalize(baseDirectory, 'test-1'), /Prepared query changed/);
 });
 
-test('rejects a stale agent report from another run', async () => {
+test('ignores a stale agent report and generates its own validation result', async () => {
   await writeCandidate();
   await validateAgent(baseDirectory, 'test-1');
   const reportPath = join(baseDirectory, 'output', 'validation.json');
   const report = JSON.parse(await readFile(reportPath, 'utf8'));
   report.runKey = 'another-run';
   await writeFile(reportPath, JSON.stringify(report));
-  await assert.rejects(finalize(baseDirectory, 'test-1'), /Stale agent report/);
+  const summary = await finalize(baseDirectory, 'test-1');
+  assert.equal(summary.passed, true);
+  assert.equal(summary.agentValidationAttempts, 0);
 });
 
 test('CLI validates handoff and writes the Actions draft output', async () => {
@@ -133,9 +137,23 @@ test('CLI validates handoff and writes the Actions draft output', async () => {
   const outputPath = join(baseDirectory, 'actions-output.txt');
   const environment = { ...process.env, GITHUB_RUN_ID: 'test', GITHUB_RUN_ATTEMPT: '1', GITHUB_OUTPUT: outputPath };
   const scriptPath = fileURLToPath(new URL('./demo.mjs', import.meta.url));
-  const validation = spawnSync(process.execPath, [scriptPath, 'validate-agent', baseDirectory], { env: environment, encoding: 'utf8' });
-  assert.equal(validation.status, 0, validation.stderr);
   const finalization = spawnSync(process.execPath, [scriptPath, 'finalize', baseDirectory], { env: environment, encoding: 'utf8' });
   assert.equal(finalization.status, 0, finalization.stderr);
   assert.equal(await readFile(outputPath, 'utf8'), 'draft=false\n');
+});
+
+test('CLI reports invalid query as draft without an agent validation report', async () => {
+  await writeCandidate('query getOrder($id: ID!) { getOrder(id: $id) { nonexistent } }');
+  const outputPath = join(baseDirectory, 'actions-output.txt');
+  const scriptPath = fileURLToPath(new URL('./demo.mjs', import.meta.url));
+  const result = spawnSync(process.execPath, [scriptPath, 'finalize', baseDirectory], {
+    env: { ...process.env, GITHUB_RUN_ID: 'test', GITHUB_RUN_ATTEMPT: '1', GITHUB_OUTPUT: outputPath },
+    encoding: 'utf8',
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(await readFile(outputPath, 'utf8'), 'draft=true\n');
+  const report = JSON.parse(await readFile(join(baseDirectory, 'publish', 'query-demo-result', 'validation.json'), 'utf8'));
+  assert.equal(report.passed, false);
+  assert(report.results.some((result) => result.errors.some((error) => error.includes('nonexistent'))));
+  assert((await readFile(join(baseDirectory, 'pr-body.md'), 'utf8')).includes('Automatic repair was not attempted'));
 });

@@ -160,10 +160,6 @@ export async function finalize(baseDirectory, runKey) {
   await checkFiles(candidatesDirectory, state.operations.filter((operation) => operation.source !== 'agent')
     .map((operation) => `${operation.operationName}.graphql`));
   const results = await inspectAgentOutput(baseDirectory, state);
-  const report = JSON.parse(await readData(join(baseDirectory, 'output', 'validation.json')));
-  assert.equal(report.runKey, runKey, 'Stale agent report');
-  assert(Array.isArray(report.attempts) && report.attempts.length >= 1 && report.attempts.length <= 3,
-    'Missing or invalid validation attempts');
   const files = [];
   for (const operation of state.operations) {
     const filename = `${operation.operationName}.graphql`;
@@ -179,13 +175,17 @@ export async function finalize(baseDirectory, runKey) {
   const summary = {
     runKey,
     passed: errors.length === 0,
-    agentValidationAttempts: report.attempts.length,
+    agentValidationAttempts: 0,
+    validationOwner: 'finalize',
+    validationAttempts: 1,
     operations: state.operations,
     errors,
   };
   for (const file of files) await writeData(join(baseDirectory, 'publish', file.path), file.text);
   await writeData(join(baseDirectory, 'publish', 'query-demo-result', 'schema.graphql'), fixture.schema);
   await writeData(join(baseDirectory, 'publish', 'query-demo-result', 'summary.json'), JSON.stringify(summary, null, 2));
+  await writeData(join(baseDirectory, 'publish', 'query-demo-result', 'validation.json'),
+    JSON.stringify({ runKey, owner: 'finalize', passed: summary.passed, results }, null, 2));
   const body = [
     '## Synthetic Query Sync Demo', '',
     `Run: ${runKey}. No business source files or real API data are involved.`, '',
@@ -198,12 +198,13 @@ export async function finalize(baseDirectory, runKey) {
     '## Validation', '',
     `Independent final GraphQL validation: ${summary.passed ? 'PASS' : 'FAIL'}.`,
     `Agent-side recorded validation attempts: ${summary.agentValidationAttempts}.`,
+    `Validation owner: Finalize. Validation attempts: ${summary.validationAttempts}. Automatic repair was not attempted.`,
     'Sample and existing query contents were checked for exact preservation.', '',
     ...errors.map((error) => `- ${error.replaceAll('`', "'").replaceAll('\n', ' ')}`), '',
     '## Follow-up', '',
     summary.passed ? 'None. Synthetic family assignments are resolved.' : 'Repair the errors before this draft can be merged.', '',
     '## Diff', '',
-    'The Files changed tab contains the synthetic schema, three query files, and the structured summary.', '',
+    'The Files changed tab contains the synthetic schema, three query files, the validation report, and the structured summary.', '',
   ].join('\n');
   await writeData(join(baseDirectory, 'pr-body.md'), body);
   return summary;
