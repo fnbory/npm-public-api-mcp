@@ -22,6 +22,12 @@ tools:
 safe-outputs:
   create-issue: false
   report-failure-as-issue: false
+  report-failed-jobs: false
+  report-missing-tool: false
+  report-missing-data: false
+  report-incomplete: false
+  threat-detection:
+    report-as-issue: false
   noop:
     report-as-issue: false
 pre-agent-steps:

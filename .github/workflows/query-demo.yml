@@ -40,6 +40,9 @@ jobs:
 
   agent:
     needs: prepare
+    permissions:
+      actions: read
+      contents: read
     uses: ./.github/workflows/query-demo-agent.lock.yml
     secrets:
       COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
